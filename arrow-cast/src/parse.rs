@@ -677,92 +677,23 @@ impl Parser for Date64Type {
 /// The result value can't be out of bounds.
 pub fn parse_decimal<T: DecimalType>(
     s: &str,
-    precision: u8,
+    _precision: u8,
     scale: i8,
 ) -> Result<T::Native, ArrowError> {
-    let mut result = T::Native::usize_as(0);
-    let mut fractionals = 0;
-    let mut digits = 0;
-    let base = T::Native::usize_as(10);
-
-    let bs = s.as_bytes();
-    let (bs, negative) = match bs.first() {
-        Some(b'-') => (&bs[1..], true),
-        Some(b'+') => (&bs[1..], false),
-        _ => (bs, false),
-    };
-
-    if bs.is_empty() {
-        return Err(ArrowError::ParseError(format!(
-            "can't parse the string value {s} to decimal"
-        )));
-    }
-
-    let mut bs = bs.iter();
-    // Overflow checks are not required if 10^(precision - 1) <= T::MAX holds.
-    // Thus, if we validate the precision correctly, we can skip overflow checks.
-    while let Some(b) = bs.next() {
-        match b {
-            b'0'..=b'9' => {
-                if digits == 0 && *b == b'0' {
-                    // Ignore leading zeros.
-                    continue;
-                }
-                digits += 1;
-                result = result.mul_wrapping(base);
-                result = result.add_wrapping(T::Native::usize_as((b - b'0') as usize));
-            }
-            b'.' => {
-                for b in bs.by_ref() {
-                    if !b.is_ascii_digit() {
-                        return Err(ArrowError::ParseError(format!(
-                            "can't parse the string value {s} to decimal"
-                        )));
-                    }
-                    if fractionals == scale {
-                        // We have processed all the digits that we need. All that
-                        // is left is to validate that the rest of the string contains
-                        // valid digits.
-                        continue;
-                    }
-                    fractionals += 1;
-                    digits += 1;
-                    result = result.mul_wrapping(base);
-                    result =
-                        result.add_wrapping(T::Native::usize_as((b - b'0') as usize));
-                }
-
-                // Fail on "."
-                if digits == 0 {
-                    return Err(ArrowError::ParseError(format!(
-                        "can't parse the string value {s} to decimal"
-                    )));
-                }
-            }
-            _ => {
-                return Err(ArrowError::ParseError(format!(
+    match rust_decimal::Decimal::from_scientific(s).or_else(|_| rust_decimal::Decimal::from_str_exact(s)) {
+        Ok(mut dec) => {
+            dec.rescale(scale as u32);
+            match T::Native::from_i128(dec.mantissa()) {
+                Some(v) => return Ok(v),
+                None => return Err(ArrowError::ParseError(format!(
                     "can't parse the string value {s} to decimal"
-                )));
+                ))),
             }
         }
+        Err(_) => return Err(ArrowError::ParseError(format!(
+            "can't parse the string value {s} to decimal"
+        ))),
     }
-
-    if fractionals < scale {
-        let exp = scale - fractionals;
-        if exp as u8 + digits > precision {
-            return Err(ArrowError::ParseError("parse decimal overflow".to_string()));
-        }
-        let mul = base.pow_wrapping(exp as _);
-        result = result.mul_wrapping(mul);
-    } else if digits > precision {
-        return Err(ArrowError::ParseError("parse decimal overflow".to_string()));
-    }
-
-    Ok(if negative {
-        result.neg_wrapping()
-    } else {
-        result
-    })
 }
 
 pub fn parse_interval_year_month(
