@@ -680,10 +680,10 @@ pub fn parse_decimal<T: DecimalType>(
     _precision: u8,
     scale: i8,
 ) -> Result<T::Native, ArrowError> {
-    match rust_decimal::Decimal::from_scientific(s).or_else(|_| rust_decimal::Decimal::from_str_exact(s)) {
-        Ok(mut dec) => {
-            dec.rescale(scale as u32);
-            match T::Native::from_i128(dec.mantissa()) {
+    match bigdecimal::BigDecimal::from_str(s) {
+        Ok(dec) => {
+            let s = dec.with_scale_round(scale.into(), bigdecimal::RoundingMode::HalfUp).into_bigint_and_exponent().0.to_string();
+            match T::Native::from_i128(i128::from_str(&s).unwrap()) {
                 Some(v) => return Ok(v),
                 None => return Err(ArrowError::ParseError(format!(
                     "can't parse the string value {s} to decimal"
