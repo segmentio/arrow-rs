@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use crate::display::{ArrayFormatter, FormatOptions};
 use crate::parse::{
-    parse_interval_day_time, parse_interval_month_day_nano, parse_interval_year_month,
+    parse_decimal, parse_interval_day_time, parse_interval_month_day_nano, parse_interval_year_month,
     string_to_datetime, Parser,
 };
 use arrow_array::{
@@ -2800,12 +2800,7 @@ where
 {
     if cast_options.safe {
         let iter = from.iter().map(|v| {
-            v.and_then(|v| parse_string_to_decimal_native::<T>(v, scale as usize).ok())
-                .and_then(|v| {
-                    T::validate_decimal_precision(v, precision)
-                        .is_ok()
-                        .then_some(v)
-                })
+            v.and_then(|v| parse_decimal::<T>(v, precision, scale).ok())
         });
         // Benefit:
         //     20% performance improvement
@@ -2820,16 +2815,13 @@ where
             .iter()
             .map(|v| {
                 v.map(|v| {
-                    parse_string_to_decimal_native::<T>(v, scale as usize)
+                    parse_decimal::<T>(v, precision, scale)
                         .map_err(|_| {
                             ArrowError::CastError(format!(
                                 "Cannot cast string '{}' to value of {:?} type",
                                 v,
                                 T::DATA_TYPE,
                             ))
-                        })
-                        .and_then(|v| {
-                            T::validate_decimal_precision(v, precision).map(|_| v)
                         })
                 })
                 .transpose()

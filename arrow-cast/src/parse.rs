@@ -677,22 +677,30 @@ impl Parser for Date64Type {
 /// The result value can't be out of bounds.
 pub fn parse_decimal<T: DecimalType>(
     s: &str,
-    _precision: u8,
+    precision: u8,
     scale: i8,
 ) -> Result<T::Native, ArrowError> {
-    match bigdecimal::BigDecimal::from_str(s) {
-        Ok(dec) => {
-            let s = dec.with_scale_round(scale.into(), bigdecimal::RoundingMode::HalfUp).into_bigint_and_exponent().0.to_string();
-            match T::Native::from_i128(i128::from_str(&s).unwrap()) {
-                Some(v) => return Ok(v),
-                None => return Err(ArrowError::ParseError(format!(
-                    "can't parse the string value {s} to decimal"
-                ))),
-            }
-        }
+    let s = match bigdecimal::BigDecimal::from_str(s) {
+        Ok(dec) => dec.with_scale_round(scale.into(), bigdecimal::RoundingMode::HalfUp).into_bigint_and_exponent().0.to_string(),
         Err(_) => return Err(ArrowError::ParseError(format!(
             "can't parse the string value {s} to decimal"
         ))),
+    };
+    let i = match i128::from_str(&s) {
+        Ok(val) => val,
+        Err(_) => return Err(ArrowError::ParseError(format!(
+            "can't parse the string value {s} to decimal"
+        ))),
+    };
+    let i = match T::Native::from_i128(i) {
+        Some(val) => val,
+        None => return Err(ArrowError::ParseError(format!(
+            "can't parse the string value {s} to decimal"
+        ))),
+    };
+    match T::validate_decimal_precision(i, precision) {
+        Ok(_) => Ok(i),
+        Err(_) => Err(ArrowError::ParseError("parse decimal overflow".to_string())),
     }
 }
 
